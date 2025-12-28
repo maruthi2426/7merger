@@ -46,23 +46,13 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
             logger.warning(f"[v0] File size {file_size / (1024*1024):.2f}MB exceeds Bot API limit - Using Pyrogram MTProto")
             
             try:
-                from handlers.pyrogram_setup import get_or_create_pyrogram_client, download_file_via_pyrogram
+                from handlers.pyrogram_setup import get_pyrogram_client, download_file_via_pyrogram
                 
-                pyrogram_client = await get_or_create_pyrogram_client(str(user_id))
+                pyrogram_client = await get_pyrogram_client()
                 if not pyrogram_client:
-                    raise Exception("Failed to create Pyrogram client")
+                    raise Exception("Failed to initialize global Pyrogram client")
                 
-                user_id_str = str(user_id)
-                
-                if user_id_str not in started_clients:
-                    logger.info(f"[v0] Starting Pyrogram client for user {user_id} (first time)")
-                    await pyrogram_client.start()
-                    started_clients[user_id_str] = True
-                    logger.info(f"[v0] Pyrogram client started and cached")
-                else:
-                    logger.info(f"[v0] Reusing already started Pyrogram client for user {user_id}")
-                
-                logger.info(f"[v0] Pyrogram client ready for user {user_id}")
+                logger.info(f"[v0] Using global Pyrogram client (already started and time synced)")
                 
                 # Get chat and message info
                 chat_id = update.effective_chat.id
@@ -99,15 +89,12 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
                 if update and file_size > 10 * 1024 * 1024:  # Only for moderately large files
                     logger.warning(f"[v0] Bot API failed, attempting Pyrogram fallback")
                     try:
-                        from handlers.pyrogram_setup import get_or_create_pyrogram_client, download_file_via_pyrogram
+                        from handlers.pyrogram_setup import get_pyrogram_client, download_file_via_pyrogram
                         
-                        pyrogram_client = await get_or_create_pyrogram_client(str(user_id))
-                        user_id_str = str(user_id)
+                        pyrogram_client = await get_pyrogram_client()
                         
-                        if user_id_str not in started_clients:
-                            logger.info(f"[v0] Starting Pyrogram client for fallback (first time)")
-                            await pyrogram_client.start()
-                            started_clients[user_id_str] = True
+                        if not pyrogram_client:
+                            raise Exception("Failed to initialize Pyrogram client")
                         
                         chat_id = update.effective_chat.id
                         message_id = update.message.message_id
