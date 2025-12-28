@@ -21,8 +21,18 @@ async def get_or_create_pyrogram_client(user_id: str) -> Client:
     - TELEGRAM_API_HASH: Your Telegram API Hash (from https://my.telegram.org)
     """
     if user_id in pyrogram_clients:
+        client = pyrogram_clients[user_id]
         logger.info(f"[v0] Using cached Pyrogram client for user {user_id}")
-        return pyrogram_clients[user_id]
+        if client.is_connected:
+            try:
+                await client.get_me()  # Verify connection and sync time
+                logger.info(f"[v0] Cached client verified and time synced")
+                return client
+            except Exception as e:
+                logger.warning(f"[v0] Cached client connection stale, reconnecting: {e}")
+                pyrogram_clients.pop(user_id, None)
+        else:
+            pyrogram_clients.pop(user_id, None)
     
     try:
         api_id = int(os.getenv("TELEGRAM_API_ID", "31315704"))
@@ -44,8 +54,14 @@ async def get_or_create_pyrogram_client(user_id: str) -> Client:
             no_updates=True  # Disable update handling for download-only client
         )
         
+        await client.start()
+        logger.info(f"[v0] Pyrogram client started for user {user_id}")
+        
+        await client.get_me()
+        logger.info(f"[v0] Pyrogram client connected and time synced for user {user_id}")
+        
         pyrogram_clients[user_id] = client
-        logger.info(f"[v0] Created Pyrogram MTProto client for user {user_id}")
+        logger.info(f"[v0] Created and cached Pyrogram MTProto client for user {user_id}")
         return client
     
     except Exception as e:
@@ -64,7 +80,7 @@ async def download_file_via_pyrogram(
     Supports files up to 2GB (vs Bot API 50MB limit).
     
     Args:
-        client: Pyrogram client instance
+        client: Pyrogram client instance (must be connected)
         chat_id: Telegram chat ID
         message_id: Message ID containing the file
         filepath: Local path to save file
@@ -73,6 +89,13 @@ async def download_file_via_pyrogram(
         True if download successful, False otherwise
     """
     try:
+        if not client.is_connected:
+            logger.warning("[v0] Client disconnected, reconnecting...")
+            await client.start()
+        
+        await client.get_me()  # Re-sync time
+        logger.info(f"[v0] Client time re-synced before download")
+        
         logger.info(f"[v0] Starting Pyrogram download to: {filepath}")
         
         # Get message with file
