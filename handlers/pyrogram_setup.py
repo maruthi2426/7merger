@@ -26,7 +26,16 @@ async def get_pyrogram_client() -> Client:
     """
     global pyro_client, client_started
     
-    async with pyro_lock:
+    if pyro_lock.locked():
+        while pyro_lock.locked():
+            await asyncio.sleep(0.1)
+    
+    if pyro_client is not None and client_started:
+        return pyro_client
+    
+    await pyro_lock.acquire()
+    
+    try:
         if pyro_client is None:
             try:
                 api_id = int(os.getenv("TELEGRAM_API_ID", "31315704"))
@@ -73,6 +82,8 @@ async def get_pyrogram_client() -> Client:
             logger.debug("[v0] Pyrogram client already started, reusing...")
         
         return pyro_client
+    finally:
+        pyro_lock.release()
 
 
 async def download_file_via_pyrogram(
