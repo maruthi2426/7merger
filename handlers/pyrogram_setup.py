@@ -36,20 +36,20 @@ async def get_or_create_pyrogram_client(user_id: str) -> Client:
         session_dir = f"./userdata/{user_id}"
         os.makedirs(session_dir, exist_ok=True)
         
+        # Use only positional args: session_name, api_id, api_hash
         client = Client(
-            name=f"{session_dir}/pyrogram",   # ← positional session name (REQUIRED)
-            api_id=api_id,
-            api_hash=api_hash,
+            f"user_{user_id}",
+            api_id,
+            api_hash,
             no_updates=True  # Disable update handling for download-only client
-            # in_memory=True    # Store session in memory, not on disk
         )
-        await client.start() 
+        
         pyrogram_clients[user_id] = client
         logger.info(f"[v0] Created Pyrogram MTProto client for user {user_id}")
         return client
     
     except Exception as e:
-        logger.error(f"[v0] Error creating Pyrogram client: {e}")
+        logger.error(f"[v0] Error creating Pyrogram client: {e}", exc_info=True)
         return None
 
 
@@ -100,7 +100,7 @@ async def download_file_via_pyrogram(
             return False
     
     except BadRequest as e:
-        logger.error(f"[v0] Pyrogram BadRequest error: {e}")
+        logger.error(f"[v0] Pyrogram BadRequest error: {e}", exc_info=True)
         return False
     except Exception as e:
         logger.error(f"[v0] Pyrogram download error: {e}", exc_info=True)
