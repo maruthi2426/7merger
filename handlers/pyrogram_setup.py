@@ -37,11 +37,11 @@ async def get_or_create_pyrogram_client(user_id: str) -> Client:
         os.makedirs(session_dir, exist_ok=True)
         
         client = Client(
-            session_name=f"user_{user_id}",
+            f"{session_dir}/pyrogram",   # ← positional session name (REQUIRED)
             api_id=api_id,
             api_hash=api_hash,
-            no_updates=True,  # Disable update handling for download-only client
-            in_memory=True    # Store session in memory, not on disk
+            # no_updates=True,  # Disable update handling for download-only client
+            # in_memory=True    # Store session in memory, not on disk
         )
         
         pyrogram_clients[user_id] = client
