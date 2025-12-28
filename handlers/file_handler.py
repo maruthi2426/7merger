@@ -52,8 +52,9 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
                     raise Exception("Failed to initialize Pyrogram client")
                 
                 # Start client connection
-                await pyrogram_client.start()
-                logger.info(f"[v0] Pyrogram client connected for user {user_id}")
+                if not pyrogram_client.is_connected:
+                    await pyrogram_client.start()
+                    logger.info(f"[v0] Pyrogram client connected for user {user_id}")
                 
                 # Get chat and message info
                 chat_id = update.effective_chat.id
@@ -68,8 +69,7 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
                 )
                 
                 # Disconnect client
-                await pyrogram_client.stop()
-                logger.info(f"[v0] Pyrogram client disconnected")
+                logger.info(f"[v0] Pyrogram download completed (client kept alive)")
                 
                 if success:
                     return True
@@ -108,8 +108,6 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
                             message_id,
                             filepath
                         )
-                        
-                        await pyrogram_client.stop()
                         return success
                     except Exception as fallback_error:
                         logger.error(f"[v0] Pyrogram fallback also failed: {fallback_error}")
