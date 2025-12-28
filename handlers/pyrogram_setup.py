@@ -11,23 +11,22 @@ pyrogram_clients = {}
 
 async def get_or_create_pyrogram_client(user_id: str) -> Client:
     """
-    Get or create a Pyrogram bot client for MTProto downloads.
+    Get or create a Pyrogram client for MTProto downloads.
     Each user gets their own session file.
     
     Pyrogram MTProto supports files up to 2GB (vs Bot API 50MB limit).
     
-    Uses Bot Token mode (no api_id/api_hash) - works reliably in Docker/cloud.
-    
-    Requires environment variable:
-    - BOT_TOKEN: Your Telegram bot token (format: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)
+    Requires environment variables:
+    - TELEGRAM_API_ID: Your Telegram API ID (from https://my.telegram.org)
+    - TELEGRAM_API_HASH: Your Telegram API Hash (from https://my.telegram.org)
     """
     if user_id in pyrogram_clients:
         client = pyrogram_clients[user_id]
         logger.info(f"[v0] Using cached Pyrogram client for user {user_id}")
         if client.is_connected:
             try:
-                await client.get_me()  # Verify connection
-                logger.info(f"[v0] Cached client verified")
+                await client.get_me()  # Verify connection and sync time
+                logger.info(f"[v0] Cached client verified and time synced")
                 return client
             except Exception as e:
                 logger.warning(f"[v0] Cached client connection stale, reconnecting: {e}")
@@ -36,30 +35,33 @@ async def get_or_create_pyrogram_client(user_id: str) -> Client:
             pyrogram_clients.pop(user_id, None)
     
     try:
-        bot_token = os.getenv("BOT_TOKEN")
+        api_id = int(os.getenv("TELEGRAM_API_ID", "31315704"))
+        api_hash = os.getenv("TELEGRAM_API_HASH", "e9a0fcbaf23eb7d872732e87cbb012cc")
         
-        if not bot_token:
-            logger.error("[v0] Missing BOT_TOKEN in environment - required for Pyrogram bot mode")
+        if not api_id or not api_hash:
+            logger.error("[v0] Missing TELEGRAM_API_ID or TELEGRAM_API_HASH in environment")
             return None
         
         # Create user session directory
         session_dir = f"./userdata/{user_id}"
         os.makedirs(session_dir, exist_ok=True)
         
+        # Use only positional args: session_name, api_id, api_hash
         client = Client(
-            f"bot_{user_id}",
-            bot_token=bot_token,
+            f"user_{user_id}",
+            api_id,
+            api_hash,
             no_updates=True  # Disable update handling for download-only client
         )
         
         await client.start()
-        logger.info(f"[v0] Pyrogram bot client started for user {user_id}")
+        logger.info(f"[v0] Pyrogram client started for user {user_id}")
         
         await client.get_me()
-        logger.info(f"[v0] Pyrogram bot client connected for user {user_id}")
+        logger.info(f"[v0] Pyrogram client connected and time synced for user {user_id}")
         
         pyrogram_clients[user_id] = client
-        logger.info(f"[v0] Created and cached Pyrogram bot client for user {user_id}")
+        logger.info(f"[v0] Created and cached Pyrogram MTProto client for user {user_id}")
         return client
     
     except Exception as e:
@@ -90,6 +92,9 @@ async def download_file_via_pyrogram(
         if not client.is_connected:
             logger.warning("[v0] Client disconnected, reconnecting...")
             await client.start()
+        
+        await client.get_me()  # Re-sync time
+        logger.info(f"[v0] Client time re-synced before download")
         
         logger.info(f"[v0] Starting Pyrogram download to: {filepath}")
         
