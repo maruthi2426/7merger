@@ -37,13 +37,13 @@ async def get_or_create_pyrogram_client(user_id: str) -> Client:
         os.makedirs(session_dir, exist_ok=True)
         
         client = Client(
-            f"{session_dir}/pyrogram",   # ← positional session name (REQUIRED)
+            name=f"{session_dir}/pyrogram",   # ← positional session name (REQUIRED)
             api_id=api_id,
             api_hash=api_hash,
-            # no_updates=True,  # Disable update handling for download-only client
+            no_updates=True  # Disable update handling for download-only client
             # in_memory=True    # Store session in memory, not on disk
         )
-        
+        await client.start() 
         pyrogram_clients[user_id] = client
         logger.info(f"[v0] Created Pyrogram MTProto client for user {user_id}")
         return client
