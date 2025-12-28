@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 file_manager = FileManager()
 processor = FFmpegProcessor()
 
+started_clients = {}
+
 async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, filepath: str, user_id: int, update: Update = None) -> bool:
     """
     Download file with intelligent fallback to Pyrogram for large files.
@@ -48,7 +50,17 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
                 
                 pyrogram_client = await get_or_create_pyrogram_client(str(user_id))
                 if not pyrogram_client:
-                    raise Exception("Failed to initialize Pyrogram client")
+                    raise Exception("Failed to create Pyrogram client")
+                
+                user_id_str = str(user_id)
+                
+                if user_id_str not in started_clients:
+                    logger.info(f"[v0] Starting Pyrogram client for user {user_id} (first time)")
+                    await pyrogram_client.start()
+                    started_clients[user_id_str] = True
+                    logger.info(f"[v0] Pyrogram client started and cached")
+                else:
+                    logger.info(f"[v0] Reusing already started Pyrogram client for user {user_id}")
                 
                 logger.info(f"[v0] Pyrogram client ready for user {user_id}")
                 
@@ -64,7 +76,7 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
                 )
                 
                 if success:
-                    logger.info(f"[v0] Download successful, keeping Pyrogram client alive for reuse")
+                    logger.info(f"[v0] Pyrogram download successful, keeping client alive for reuse")
                     return True
                 else:
                     raise Exception("Pyrogram download failed")
@@ -90,6 +102,12 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
                         from handlers.pyrogram_setup import get_or_create_pyrogram_client, download_file_via_pyrogram
                         
                         pyrogram_client = await get_or_create_pyrogram_client(str(user_id))
+                        user_id_str = str(user_id)
+                        
+                        if user_id_str not in started_clients:
+                            logger.info(f"[v0] Starting Pyrogram client for fallback (first time)")
+                            await pyrogram_client.start()
+                            started_clients[user_id_str] = True
                         
                         chat_id = update.effective_chat.id
                         message_id = update.message.message_id
