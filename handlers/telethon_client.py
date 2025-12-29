@@ -106,7 +106,12 @@ async def download_file_via_telethon(chat_id: int, message_id: int, file_path: s
             logger.error("[v0] Message not found or has no media")
             return False
         
-        final_callback = progress_callback if progress_callback else create_progress_callback(message.media.size)
+        # MessageMediaDocument stores size in the document attribute
+        total_size = 0
+        if hasattr(message.media, 'document') and message.media.document:
+            total_size = message.media.document.size
+        
+        final_callback = progress_callback if progress_callback else create_progress_callback(total_size)
         
         await client.download_media(
             message,
