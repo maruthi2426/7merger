@@ -21,7 +21,7 @@ async def get_telethon_client():
     try:
         API_ID = int(os.getenv('API_ID', '24663402'))
         API_HASH = os.getenv('API_HASH', '3ca4ba0a56c360004a0048d51d385529')
-        BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+        BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8568856909:AAHy9nqMBhcIGVuFdA2QtMWKWoqQf5roROE')
         
         if not BOT_TOKEN:
             logger.error("[v0] TELEGRAM_BOT_TOKEN not set in environment")
