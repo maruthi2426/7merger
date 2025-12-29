@@ -1,5 +1,6 @@
 import os
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.ext import (
@@ -61,16 +62,17 @@ if not BOT_TOKEN:
 if not WEBHOOK_URL:
     raise ValueError("WEBHOOK_URL not found in environment variables")
 
-app = FastAPI()
 application = None
 
 processed_updates = set()
 MAX_PROCESSED_UPDATES = 1000  # Keep only recent update IDs in memory
 
-@app.on_event("startup")
-async def on_startup():
-    """Initialize bot and set webhook."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage bot lifecycle with lifespan context manager."""
     global application
+    
+    # Startup
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Create temp folder for files
@@ -127,17 +129,16 @@ async def on_startup():
     # Set webhook
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
     logger.info(f"✅ Bot started with Telethon MTProto support for files up to 2GB - Webhook set to {WEBHOOK_URL}/webhook")
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    """Shutdown bot gracefully."""
-    global application
     
+    yield
+    
+    # Shutdown
     await close_telethon_client()
-    
     await application.stop()
     await application.shutdown()
     logger.info("Bot stopped")
+
+app = FastAPI(lifespan=lifespan)
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):

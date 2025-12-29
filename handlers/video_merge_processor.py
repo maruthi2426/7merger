@@ -333,7 +333,7 @@ async def execute_smart_merge(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         if upload_engine == "telegram":
             upload_as_document = upload_mode.get("format") == "document"
-            await _upload_to_telegram(
+            await _upload_to_telegram_telethon(
                 context, user_id, output_file, file_size_mb, 
                 queue, start_time, status_msg, upload_as_document, merged_filename, thumbnail_file
             )
@@ -341,14 +341,12 @@ async def execute_smart_merge(update: Update, context: ContextTypes.DEFAULT_TYPE
             await _upload_to_rclone(
                 context, user_id, output_file, queue, start_time, status_msg, merged_filename
             )
-        elif upload_engine == "pyrogram" and PYROGRAM_AVAILABLE:
-            await _upload_to_pyrogram(
-                context, user_id, output_file, file_size_mb, 
-                queue, start_time, status_msg, merged_filename, thumbnail_file
-            )
         else:
             logger.error(f"Unknown upload engine: {upload_engine}")
-            await status_msg.edit_text("❌ Invalid upload mode configured")
+            try:
+                await status_msg.edit_text("❌ Invalid upload mode configured")
+            except:
+                pass
         
         logger.info(f"[v0] Clearing merge queue for user {user_id} after successful merge")
         queue.clear_all()
@@ -397,23 +395,31 @@ async def execute_smart_merge(update: Update, context: ContextTypes.DEFAULT_TYPE
         queue.is_merging = False
 
 
-async def _upload_to_telegram(context, user_id, filepath, file_size_mb, queue, start_time, status_msg, upload_as_document, filename, thumbnail_file=None):
+async def _upload_to_telegram_telethon(context, user_id, filepath, file_size_mb, queue, start_time, status_msg, upload_as_document, filename, thumbnail_file=None):
     """
-    Upload file to Telegram with MTProto fallback for large files.
-    Uses Pyrogram (MTProto) for files >50MB, Bot API for smaller files.
+    Upload file to Telegram using Telethon MTProto.
+    Supports files up to 2GB without Bot API limitations.
     """
     try:
-        if file_size_mb > 50 and PYROGRAM_AVAILABLE:
-            logger.info(f"Using Pyrogram MTProto for large file upload ({file_size_mb:.2f}MB)")
-            await _upload_via_pyrogram(user_id, filepath, filename, file_size_mb, queue, start_time, status_msg, upload_as_document)
-            return
+        from handlers.telethon_client import get_telethon_client
+        from handlers.file_handler import create_progress_callback
+        import asyncio
         
-        # Fallback to Bot API for smaller files
-        with open(filepath, 'rb') as f:
+        client = await get_telethon_client()
+        
+        logger.info(f"[v0] Uploading merged file via Telethon MTProto ({file_size_mb:.2f}MB)")
+        
+        # Create progress callback for upload
+        progress_callback = create_progress_callback(os.path.getsize(filepath))
+        
+        try:
             if upload_as_document:
-                await context.bot.send_document(
-                    chat_id=user_id,
-                    document=f,
+                # Upload as document
+                file_obj = await client.upload_file(filepath, progress_callback=progress_callback)
+                
+                await client.send_file(
+                    user_id,
+                    file_obj,
                     caption=f"✅ MERGE COMPLETE!\n━━━━━━━━━━━━━━━━━━\n\n"
                             f"📁 {filename}\n"
                             f"📊 Size: {file_size_mb:.2f}MB\n"
@@ -421,38 +427,46 @@ async def _upload_to_telegram(context, user_id, filepath, file_size_mb, queue, s
                             f"⏲️ Processing time: {int(time.time() - start_time)}s"
                 )
             else:
+                # Upload as video with thumbnail
+                file_obj = await client.upload_file(filepath, progress_callback=progress_callback)
+                
                 thumb = None
                 if thumbnail_file and os.path.exists(thumbnail_file):
-                    try:
-                        thumb = open(thumbnail_file, 'rb')
-                        await context.bot.send_video(
-                            chat_id=user_id,
-                            video=f,
-                            thumbnail=thumb,
-                            caption=f"✅ MERGE COMPLETE!\n━━━━━━━━━━━━━━━━━━\n\n"
-                                    f"📹 {filename}\n"
-                                    f"📊 Size: {file_size_mb:.2f}MB\n"
-                                    f"⏱️ Duration: {queue._format_duration(queue.get_total_duration())}\n\n"
-                                    f"⏲️ Processing time: {int(time.time() - start_time)}s"
-                        )
-                    finally:
-                        if thumb:
-                            thumb.close()
-                else:
-                    await context.bot.send_video(
-                        chat_id=user_id,
-                        video=f,
-                        caption=f"✅ MERGE COMPLETE!\n━━━━━━━━━━━━━━━━━━\n\n"
-                                f"📹 {filename}\n"
-                                f"📊 Size: {file_size_mb:.2f}MB\n"
-                                f"⏱️ Duration: {queue._format_duration(queue.get_total_duration())}\n\n"
-                                f"⏲️ Processing time: {int(time.time() - start_time)}s"
-                    )
+                    thumb = await client.upload_file(thumbnail_file)
+                
+                await client.send_file(
+                    user_id,
+                    file_obj,
+                    caption=f"✅ MERGE COMPLETE!\n━━━━━━━━━━━━━━━━━━\n\n"
+                            f"📹 {filename}\n"
+                            f"📊 Size: {file_size_mb:.2f}MB\n"
+                            f"⏱️ Duration: {queue._format_duration(queue.get_total_duration())}\n\n"
+                            f"⏲️ Processing time: {int(time.time() - start_time)}s",
+                    thumb=thumb,
+                    force_document=False
+                )
+        
+        except asyncio.TimeoutError:
+            logger.error(f"[v0] Telethon upload timeout for user {user_id}")
+            try:
+                await status_msg.edit_text(
+                    "❌ UPLOAD TIMEOUT\n━━━━━━━━━━━━━━━━━━\n\n"
+                    f"File upload timed out. Please try again.\n"
+                    f"File size: {file_size_mb:.2f}MB"
+                )
+            except:
+                pass
+            return
         
         await status_msg.delete()
+        logger.info(f"[v0] Telethon upload successful for user {user_id}")
+    
     except Exception as e:
-        logger.error(f"Telegram upload error: {e}")
-        raise
+        logger.error(f"[v0] Telethon upload error: {e}", exc_info=True)
+        try:
+            await status_msg.edit_text(f"❌ Upload failed: {str(e)[:100]}")
+        except:
+            pass
 
 
 async def _upload_to_rclone(context, user_id, filepath, queue, start_time, status_msg, filename):
@@ -499,121 +513,5 @@ async def _upload_to_rclone(context, user_id, filepath, queue, start_time, statu
         logger.error(f"Rclone upload error: {e}", exc_info=True)
         try:
             await status_msg.edit_text(f"❌ Rclone upload failed: {str(e)}")
-        except:
-            pass
-
-
-async def _upload_to_pyrogram(context, user_id, filepath, file_size_mb, queue, start_time, status_msg, filename, thumbnail_file=None):
-    """Upload file to Pyrogram configured drive."""
-    try:
-        if not context.user_data.get("pyrogram_client"):
-            logger.error("Pyrogram client not initialized")
-            await status_msg.edit_text("❌ Pyrogram client not initialized")
-            return
-        
-        pyrogram_client = context.user_data["pyrogram_client"]
-        
-        with open(filepath, 'rb') as f:
-            if thumbnail_file and os.path.exists(thumbnail_file):
-                await pyrogram_client.send_video(
-                    chat_id=user_id,
-                    video=f,
-                    thumb=thumbnail_file,
-                    caption=f"✅ MERGE COMPLETE!\n━━━━━━━━━━━━━━━━━━\n\n"
-                            f"📹 {filename}\n"
-                            f"📊 Size: {file_size_mb:.2f}MB\n"
-                            f"⏱️ Duration: {queue._format_duration(queue.get_total_duration())}\n\n"
-                            f"⏲️ Processing time: {int(time.time() - start_time)}s"
-                )
-            else:
-                await pyrogram_client.send_video(
-                    chat_id=user_id,
-                    video=f,
-                    caption=f"✅ MERGE COMPLETE!\n━━━━━━━━━━━━━━━━━━\n\n"
-                            f"📹 {filename}\n"
-                            f"📊 Size: {file_size_mb:.2f}MB\n"
-                            f"⏱️ Duration: {queue._format_duration(queue.get_total_duration())}\n\n"
-                            f"⏲️ Processing time: {int(time.time() - start_time)}s"
-                )
-        
-        await status_msg.delete()
-    except Exception as e:
-        logger.error(f"Pyrogram upload error: {e}")
-        raise
-
-
-async def _upload_via_pyrogram(user_id, filepath, filename, file_size_mb, queue, start_time, status_msg, upload_as_document):
-    """
-    Upload file using Pyrogram (MTProto) for files >50MB.
-    Bypasses Telegram Bot API 50MB limit.
-    
-    Requires:
-    - pyrogram library installed
-    - Telegram API_ID and API_HASH configured in environment
-    - User session file created
-    """
-    try:
-        import os as os_module
-        
-        api_id = int(os_module.getenv("TELEGRAM_API_ID", "31315704"))
-        api_hash = os_module.getenv("TELEGRAM_API_HASH", "e9a0fcbaf23eb7d872732e87cbb012cc")
-        
-        if not api_id or not api_hash:
-            logger.error("Pyrogram: Missing TELEGRAM_API_ID or TELEGRAM_API_HASH")
-            raise ValueError("Telegram API credentials not configured")
-        
-        # Create MTProto client (user session)
-        client = Client(
-            name="video_merger_session",
-            api_id=api_id,
-            api_hash=api_hash,
-            in_memory=True  # Don't save session to disk
-        )
-        
-        async with client:
-            logger.info(f"Uploading {file_size_mb:.2f}MB file via Pyrogram to user {user_id}")
-            
-            # Send file via Pyrogram (no size limit)
-            if upload_as_document:
-                await client.send_document(
-                    chat_id=user_id,
-                    document=filepath,
-                    caption=f"✅ MERGE COMPLETE!\n━━━━━━━━━━━━━━━━━━\n\n"
-                            f"📁 {filename}\n"
-                            f"📊 Size: {file_size_mb:.2f}MB\n"
-                            f"⏱️ Duration: {queue._format_duration(queue.get_total_duration())}\n\n"
-                            f"⏲️ Processing time: {int(time.time() - start_time)}s"
-                )
-            else:
-                await client.send_video(
-                    chat_id=user_id,
-                    video=filepath,
-                    caption=f"✅ MERGE COMPLETE!\n━━━━━━━━━━━━━━━━━━\n\n"
-                            f"📹 {filename}\n"
-                            f"📊 Size: {file_size_mb:.2f}MB\n"
-                            f"⏱️ Duration: {queue._format_duration(queue.get_total_duration())}\n\n"
-                            f"⏲️ Processing time: {int(time.time() - start_time)}s"
-                )
-            
-            logger.info(f"Pyrogram upload successful for user {user_id}")
-        
-        await status_msg.delete()
-    
-    except ImportError:
-        logger.error("Pyrogram not installed. Install with: pip install pyrogram tgcrypto")
-        try:
-            await status_msg.edit_text(
-                "❌ UPLOAD FAILED\n━━━━━━━━━━━━━━━━━━\n\n"
-                f"File size ({file_size_mb:.2f}MB) exceeds Bot API limit (50MB).\n\n"
-                "⚠️ Install Pyrogram for large file support:\n"
-                "`pip install pyrogram tgcrypto`"
-            )
-        except:
-            pass
-    
-    except Exception as e:
-        logger.error(f"Pyrogram upload error: {e}", exc_info=True)
-        try:
-            await status_msg.edit_text(f"❌ Upload error: {str(e)}")
         except:
             pass

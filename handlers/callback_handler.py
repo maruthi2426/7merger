@@ -27,7 +27,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         await query.answer()
     except Exception as e:
-        logger.warning(f"Callback answer error (normal): {e}")
+        logger.debug(f"[v0] Callback query error (may be expired): {e}")
+        return
     
     callback_data = query.data
     
