@@ -21,110 +21,57 @@ processor = FFmpegProcessor()
 
 async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, filepath: str, user_id: int, update: Update = None) -> bool:
     """
-    Download file with intelligent fallback to Telethon for large files.
+    Download file using Telethon MTProto protocol (supports files up to 2GB).
     
-    Bot API getFile has 50MB hard limit enforced by Telegram servers.
-    For files > 50MB, automatically switch to Telethon MTProto protocol (supports up to 2GB).
+    Telethon is now the primary and only download method - no Bot API fallback.
+    This allows reliable downloads of files larger than the 50MB Bot API limit.
     
     Args:
         context: Telegram context
         file: File object from update.message
         filepath: Local path to save file
         user_id: User ID
-        update: Update object (required for Telethon fallback)
+        update: Update object (required for Telethon)
     
     Returns:
         True if download successful, False otherwise
     """
     try:
-        BOT_API_LIMIT = 50 * 1024 * 1024  # 50MB hard limit
+        if not update:
+            logger.error("[v0] Update object required for Telethon download")
+            return False
+        
         file_size = getattr(file, "file_size", 0)
+        logger.info(f"[v0] Telethon download request - file_size: {file_size / (1024*1024):.2f}MB (supports up to 2GB)")
         
-        logger.info(f"[v0] Download request - file_size: {file_size / (1024*1024):.2f}MB (Bot API limit: 50MB)")
+        client = await get_telethon_client()
+        if not client:
+            logger.error("[v0] Failed to initialize Telethon client")
+            return False
         
-        if file_size > BOT_API_LIMIT and update:
-            logger.warning(f"[v0] File size {file_size / (1024*1024):.2f}MB exceeds Bot API limit - Using Telethon MTProto")
-            
-            try:
-                client = await get_telethon_client()
-                if not client:
-                    raise Exception("Failed to initialize global Telethon client")
-                
-                logger.info(f"[v0] Using global Telethon client (already started and time synced)")
-                
-                # Get chat and message info
-                chat_id = update.effective_chat.id
-                message_id = update.message.message_id
-                
-                success = await download_file_via_telethon(
-                    client,
-                    chat_id,
-                    message_id,
-                    filepath
-                )
-                
-                if success:
-                    logger.info(f"[v0] Telethon download successful, keeping client alive for reuse")
-                    return True
-                else:
-                    raise Exception("Telethon download failed")
-            
-            except Exception as telethon_error:
-                logger.error(f"[v0] Telethon method failed: {telethon_error}")
-                return False
+        # Get chat and message info from update
+        chat_id = update.effective_chat.id
+        message_id = update.message.message_id
         
-        if file_size <= BOT_API_LIMIT:
-            logger.info(f"[v0] File size {file_size / (1024*1024):.2f}MB - Using Bot API")
-            try:
-                file_obj = await context.bot.get_file(file.file_id)
-                await file_obj.download_to_drive(filepath)
-                logger.info(f"[v0] Bot API download successful: {filepath}")
-                return True
-            except Exception as bot_api_error:
-                logger.error(f"[v0] Bot API download failed: {bot_api_error}")
-                
-                # If Bot API fails, try Telethon as last resort
-                if update and file_size > 10 * 1024 * 1024:  # Only for moderately large files
-                    logger.warning(f"[v0] Bot API failed, attempting Telethon fallback")
-                    try:
-                        client = await get_telethon_client()
-                        
-                        if not client:
-                            raise Exception("Failed to initialize Telethon client")
-                        
-                        chat_id = update.effective_chat.id
-                        message_id = update.message.message_id
-                        
-                        success = await download_file_via_telethon(
-                            client,
-                            chat_id,
-                            message_id,
-                            filepath
-                        )
-                        
-                        return success
-                    except Exception as fallback_error:
-                        logger.error(f"[v0] Telethon fallback also failed: {fallback_error}")
-                        return False
-                return False
+        logger.info(f"[v0] Downloading via Telethon MTProto: chat_id={chat_id}, message_id={message_id}")
         
-        # If file size is unknown (0), try Bot API first
-        if file_size == 0:
-            logger.info(f"[v0] File size unknown - attempting Bot API")
-            try:
-                file_obj = await context.bot.get_file(file.file_id)
-                await file_obj.download_to_drive(filepath)
-                logger.info(f"[v0] Unknown size file downloaded via Bot API: {filepath}")
-                return True
-            except Exception as e:
-                logger.error(f"[v0] Bot API failed for unknown size file: {e}")
-                return False
+        success = await download_file_via_telethon(
+            client,
+            chat_id,
+            message_id,
+            filepath
+        )
         
-        return False
+        if success:
+            logger.info(f"[v0] Telethon download successful: {filepath}")
+            return True
+        else:
+            logger.error("[v0] Telethon download failed")
+            return False
     
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"[v0] Unexpected download error: {error_msg}", exc_info=True)
+        logger.error(f"[v0] Download error: {error_msg}", exc_info=True)
         return False
 
 async def handle_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

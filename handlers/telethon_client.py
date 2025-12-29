@@ -48,12 +48,13 @@ async def get_telethon_client():
         telethon_client = None
         return None
 
-async def download_file_via_telethon(message, file_path: str, progress_callback=None) -> bool:
+async def download_file_via_telethon(chat_id: int, message_id: int, file_path: str, progress_callback=None) -> bool:
     """
     Download file from Telegram using Telethon (supports up to 2GB).
     
     Args:
-        message: Telethon message object
+        chat_id: Chat/Channel ID where message is located
+        message_id: Message ID containing the file
         file_path: Local path to save file
         progress_callback: Optional callback for download progress
     
@@ -66,9 +67,15 @@ async def download_file_via_telethon(message, file_path: str, progress_callback=
             logger.error("[v0] Failed to get Telethon client")
             return False
         
-        logger.info(f"[v0] Downloading file via Telethon MTProto to {file_path}")
+        logger.info(f"[v0] Downloading file via Telethon MTProto from chat {chat_id}, message {message_id}")
         
-        # Download using Telethon (supports files up to 2GB)
+        # Fetch the message from Telegram
+        message = await client.get_messages(chat_id, ids=message_id)
+        
+        if not message or not message.media:
+            logger.error("[v0] Message not found or has no media")
+            return False
+        
         await client.download_media(
             message,
             file=file_path,
@@ -77,7 +84,7 @@ async def download_file_via_telethon(message, file_path: str, progress_callback=
         
         if os.path.exists(file_path):
             file_size = os.path.getsize(file_path)
-            logger.info(f"[v0] File downloaded successfully: {file_size / (1024*1024):.2f}MB")
+            logger.info(f"[v0] File downloaded successfully via Telethon: {file_size / (1024*1024):.2f}MB")
             return True
         else:
             logger.error("[v0] File download completed but file not found")
