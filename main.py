@@ -64,6 +64,9 @@ if not WEBHOOK_URL:
 app = FastAPI()
 application = None
 
+processed_updates = set()
+MAX_PROCESSED_UPDATES = 1000  # Keep only recent update IDs in memory
+
 @app.on_event("startup")
 async def on_startup():
     """Initialize bot and set webhook."""
@@ -140,8 +143,24 @@ async def on_shutdown():
 async def telegram_webhook(request: Request):
     """Handle incoming Telegram updates via webhook."""
     try:
-        update = Update.de_json(await request.json(), application.bot)
+        update_data = await request.json()
+        
+        update_id = update_data.get("update_id")
+        if update_id in processed_updates:
+            logger.debug(f"[v0] Skipping duplicate update {update_id}")
+            return {"ok": True}
+        
+        # Add to processed set
+        processed_updates.add(update_id)
+        
+        # Keep set size manageable
+        if len(processed_updates) > MAX_PROCESSED_UPDATES:
+            # Remove oldest IDs (keep only recent ones)
+            processed_updates.clear()
+        
+        update = Update.de_json(update_data, application.bot)
         await application.process_update(update)
+        
     except Exception as e:
         logger.error(f"Error processing webhook update: {e}")
     return {"ok": True}

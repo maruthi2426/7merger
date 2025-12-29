@@ -37,36 +37,47 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
         True if download successful, False otherwise
     """
     try:
-        if not update:
-            logger.error("[v0] Update object required for Telethon download")
+        download_key = f"downloading_{user_id}_{filepath}"
+        if context.user_data.get(download_key):
+            logger.warning(f"[v0] Download already in progress for {filepath}")
             return False
         
-        file_size = getattr(file, "file_size", 0)
-        logger.info(f"[v0] Telethon download request - file_size: {file_size / (1024*1024):.2f}MB (supports up to 2GB)")
+        context.user_data[download_key] = True
         
-        client = await get_telethon_client()
-        if not client:
-            logger.error("[v0] Failed to initialize Telethon client")
-            return False
+        try:
+            if not update:
+                logger.error("[v0] Update object required for Telethon download")
+                return False
+            
+            file_size = getattr(file, "file_size", 0)
+            logger.info(f"[v0] Telethon download request - file_size: {file_size / (1024*1024):.2f}MB (supports up to 2GB)")
+            
+            client = await get_telethon_client()
+            if not client:
+                logger.error("[v0] Failed to initialize Telethon client")
+                return False
+            
+            # Get chat and message info from update
+            chat_id = update.effective_chat.id
+            message_id = update.message.message_id
+            
+            logger.info(f"[v0] Downloading via Telethon MTProto: chat_id={chat_id}, message_id={message_id}")
+            
+            success = await download_file_via_telethon(
+                chat_id,
+                message_id,
+                filepath
+            )
+            
+            if success:
+                logger.info(f"[v0] Telethon download successful: {filepath}")
+                return True
+            else:
+                logger.error("[v0] Telethon download failed")
+                return False
         
-        # Get chat and message info from update
-        chat_id = update.effective_chat.id
-        message_id = update.message.message_id
-        
-        logger.info(f"[v0] Downloading via Telethon MTProto: chat_id={chat_id}, message_id={message_id}")
-        
-        success = await download_file_via_telethon(
-            chat_id,
-            message_id,
-            filepath
-        )
-        
-        if success:
-            logger.info(f"[v0] Telethon download successful: {filepath}")
-            return True
-        else:
-            logger.error("[v0] Telethon download failed")
-            return False
+        finally:
+            context.user_data.pop(download_key, None)
     
     except Exception as e:
         error_msg = str(e)
@@ -226,7 +237,8 @@ async def handle_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if operation in ["merge", "merge_add"]:
             download_msg = await update.message.reply_text(
                 "📥 Downloading video...\n"
-                "Progress: 0%",
+                "Progress: 0%\n"
+                "Speed: Calculating...",
                 reply_to_message_id=update.message.message_id
             )
             

@@ -1,6 +1,7 @@
 """Telethon client for downloading large files (up to 2GB)."""
 import os
 import logging
+import time
 from telethon import TelegramClient
 from telethon.types import DocumentAttributeVideo
 from telethon.errors import SessionPasswordNeededError
@@ -48,6 +49,35 @@ async def get_telethon_client():
         telethon_client = None
         return None
 
+def create_progress_callback(total_size: int):
+    """
+    Create a progress callback that displays download speed and ETA.
+    
+    Args:
+        total_size: Total file size in bytes
+    
+    Returns:
+        Callback function for download progress
+    """
+    start_time = time.time()
+    
+    def progress_callback(current, total):
+        elapsed = time.time() - start_time
+        if elapsed > 0:
+            speed_mbps = (current / (1024*1024)) / elapsed
+            if current > 0:
+                eta_seconds = (total - current) / (current / elapsed) if current > 0 else 0
+                percentage = (current / total) * 100 if total > 0 else 0
+                
+                logger.info(
+                    f"[v0] Download progress: {percentage:.1f}% | "
+                    f"Speed: {speed_mbps:.2f} MB/s | "
+                    f"ETA: {int(eta_seconds)}s | "
+                    f"{current/(1024*1024):.2f}MB/{total/(1024*1024):.2f}MB"
+                )
+    
+    return progress_callback
+
 async def download_file_via_telethon(chat_id: int, message_id: int, file_path: str, progress_callback=None) -> bool:
     """
     Download file from Telegram using Telethon (supports up to 2GB).
@@ -76,10 +106,12 @@ async def download_file_via_telethon(chat_id: int, message_id: int, file_path: s
             logger.error("[v0] Message not found or has no media")
             return False
         
+        final_callback = progress_callback if progress_callback else create_progress_callback(message.media.size)
+        
         await client.download_media(
             message,
             file=file_path,
-            progress_callback=progress_callback if progress_callback else None
+            progress_callback=final_callback
         )
         
         if os.path.exists(file_path):
