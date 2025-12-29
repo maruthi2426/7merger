@@ -56,7 +56,6 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
         logger.info(f"[v0] Downloading via Telethon MTProto: chat_id={chat_id}, message_id={message_id}")
         
         success = await download_file_via_telethon(
-            client,
             chat_id,
             message_id,
             filepath
