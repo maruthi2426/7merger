@@ -12,26 +12,26 @@ from handlers.media_processor import (
     process_subtitle
 )
 from handlers.video_merge_processor import process_merge_video
+from handlers.telethon_client import download_file_via_telethon, get_telethon_client
+import asyncio
 
 logger = logging.getLogger(__name__)
 file_manager = FileManager()
 processor = FFmpegProcessor()
 
-started_clients = {}
-
 async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, filepath: str, user_id: int, update: Update = None) -> bool:
     """
-    Download file with intelligent fallback to Pyrogram for large files.
+    Download file with intelligent fallback to Telethon for large files.
     
     Bot API getFile has 50MB hard limit enforced by Telegram servers.
-    For files > 50MB, automatically switch to Pyrogram MTProto protocol (supports up to 2GB).
+    For files > 50MB, automatically switch to Telethon MTProto protocol (supports up to 2GB).
     
     Args:
         context: Telegram context
         file: File object from update.message
         filepath: Local path to save file
         user_id: User ID
-        update: Update object (required for Pyrogram fallback)
+        update: Update object (required for Telethon fallback)
     
     Returns:
         True if download successful, False otherwise
@@ -43,36 +43,34 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
         logger.info(f"[v0] Download request - file_size: {file_size / (1024*1024):.2f}MB (Bot API limit: 50MB)")
         
         if file_size > BOT_API_LIMIT and update:
-            logger.warning(f"[v0] File size {file_size / (1024*1024):.2f}MB exceeds Bot API limit - Using Pyrogram MTProto")
+            logger.warning(f"[v0] File size {file_size / (1024*1024):.2f}MB exceeds Bot API limit - Using Telethon MTProto")
             
             try:
-                from handlers.pyrogram_setup import get_pyrogram_client, download_file_via_pyrogram
+                client = await get_telethon_client()
+                if not client:
+                    raise Exception("Failed to initialize global Telethon client")
                 
-                pyrogram_client = await get_pyrogram_client()
-                if not pyrogram_client:
-                    raise Exception("Failed to initialize global Pyrogram client")
-                
-                logger.info(f"[v0] Using global Pyrogram client (already started and time synced)")
+                logger.info(f"[v0] Using global Telethon client (already started and time synced)")
                 
                 # Get chat and message info
                 chat_id = update.effective_chat.id
                 message_id = update.message.message_id
                 
-                success = await download_file_via_pyrogram(
-                    pyrogram_client,
+                success = await download_file_via_telethon(
+                    client,
                     chat_id,
                     message_id,
                     filepath
                 )
                 
                 if success:
-                    logger.info(f"[v0] Pyrogram download successful, keeping client alive for reuse")
+                    logger.info(f"[v0] Telethon download successful, keeping client alive for reuse")
                     return True
                 else:
-                    raise Exception("Pyrogram download failed")
+                    raise Exception("Telethon download failed")
             
-            except Exception as pyrogram_error:
-                logger.error(f"[v0] Pyrogram method failed: {pyrogram_error}")
+            except Exception as telethon_error:
+                logger.error(f"[v0] Telethon method failed: {telethon_error}")
                 return False
         
         if file_size <= BOT_API_LIMIT:
@@ -85,22 +83,20 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
             except Exception as bot_api_error:
                 logger.error(f"[v0] Bot API download failed: {bot_api_error}")
                 
-                # If Bot API fails, try Pyrogram as last resort
+                # If Bot API fails, try Telethon as last resort
                 if update and file_size > 10 * 1024 * 1024:  # Only for moderately large files
-                    logger.warning(f"[v0] Bot API failed, attempting Pyrogram fallback")
+                    logger.warning(f"[v0] Bot API failed, attempting Telethon fallback")
                     try:
-                        from handlers.pyrogram_setup import get_pyrogram_client, download_file_via_pyrogram
+                        client = await get_telethon_client()
                         
-                        pyrogram_client = await get_pyrogram_client()
-                        
-                        if not pyrogram_client:
-                            raise Exception("Failed to initialize Pyrogram client")
+                        if not client:
+                            raise Exception("Failed to initialize Telethon client")
                         
                         chat_id = update.effective_chat.id
                         message_id = update.message.message_id
                         
-                        success = await download_file_via_pyrogram(
-                            pyrogram_client,
+                        success = await download_file_via_telethon(
+                            client,
                             chat_id,
                             message_id,
                             filepath
@@ -108,7 +104,7 @@ async def download_file_with_fallback(context: ContextTypes.DEFAULT_TYPE, file, 
                         
                         return success
                     except Exception as fallback_error:
-                        logger.error(f"[v0] Pyrogram fallback also failed: {fallback_error}")
+                        logger.error(f"[v0] Telethon fallback also failed: {fallback_error}")
                         return False
                 return False
         

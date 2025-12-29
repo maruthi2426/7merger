@@ -28,6 +28,7 @@ from handlers.media_handlers import (
     rename_file,
 )
 from handlers.file_handler import handle_files
+from handlers.telethon_client import get_telethon_client, close_telethon_client
 from utils.logger import setup_logging
 from utils.file_manager import FileManager
 
@@ -71,6 +72,8 @@ async def on_startup():
     
     # Create temp folder for files
     FileManager.create_temp_folder()
+    
+    await get_telethon_client()
     
     # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
@@ -120,12 +123,15 @@ async def on_startup():
     
     # Set webhook
     await application.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-    logger.info(f"✅ Bot started - Webhook set to {WEBHOOK_URL}/webhook")
+    logger.info(f"✅ Bot started with Telethon MTProto support for files up to 2GB - Webhook set to {WEBHOOK_URL}/webhook")
 
 @app.on_event("shutdown")
 async def on_shutdown():
     """Shutdown bot gracefully."""
     global application
+    
+    await close_telethon_client()
+    
     await application.stop()
     await application.shutdown()
     logger.info("Bot stopped")
